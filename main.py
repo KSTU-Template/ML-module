@@ -75,7 +75,6 @@ def create_text(model, tokenizer, input):
     )[0]
     out = tokenizer.decode(output_ids.tolist())
     out = out.replace("<s>","").replace("</s>","")
-    out = prompt
     return out
 
 @app.post("/generate")
