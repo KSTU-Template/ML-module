@@ -1,13 +1,18 @@
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+
 
 class Advantage(BaseModel):
     text: str
     desc: str
 
+
 class Product(BaseModel):
+    id: int
     title: str
     description: str
     interest_rate: str | None = None
@@ -16,9 +21,12 @@ class Product(BaseModel):
     conditions: str
     benefits: str | None = None
 
+
 class Channel(BaseModel):
+    id: int
     name: str
     description: str
+
 
 class Client(BaseModel):
     id: int
@@ -26,6 +34,7 @@ class Client(BaseModel):
     gender: str
     age: float
     created_at: str
+
 
 class Input(BaseModel):
     product: Product
@@ -35,23 +44,32 @@ class Input(BaseModel):
 
 ml_modules = {}
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ml_modules["tokenizer"] = AutoTokenizer.from_pretrained("JohnGrace/Yakutia-KSTU_Template")
     ml_modules["model"] = AutoModelForSeq2SeqLM.from_pretrained("JohnGrace/Yakutia-KSTU_Template")
     yield
-    
+
     ml_modules.clear()
 
 
 app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def prepare_prompt_for_channel(input):
     product_data = input.product
     prompt = product_data.title
     channel = input.channel.name
-    
+
     if channel in ["TMO", "EMAIL", "OFFICE_BANNER"]:
         prompt += f" | {product_data.description} | {product_data.conditions}"
         if product_data.advantages:
@@ -71,11 +89,13 @@ def create_text(model, tokenizer, input):
     data = tokenizer('<SC6>' + prompt + '\nОтвет: <extra_id_0>', return_tensors="pt")
     data = {k: v.to(model.device) for k, v in data.items()}
     output_ids = model.generate(
-        **data,  do_sample=True, temperature=0.6, max_new_tokens=1024, top_p=0.95, top_k=5, repetition_penalty=1.03, no_repeat_ngram_size=2
+        **data, do_sample=True, temperature=0.6, max_new_tokens=1024, top_p=0.95, top_k=5, repetition_penalty=1.03,
+        no_repeat_ngram_size=2
     )[0]
     out = tokenizer.decode(output_ids.tolist())
-    out = out.replace("<s>","").replace("</s>","")
+    out = out.replace("<s>", "").replace("</s>", "").replace('<pad><extra_id_0>', '')
     return out
+
 
 @app.post("/generate")
 async def generate(input: Input):
